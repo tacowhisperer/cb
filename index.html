@@ -1,0 +1,675 @@
+<!-- Laziness strikes again, but this time for cashier breaking at the end of the day -->
+<html>
+    <head>
+        <!-- Wouldn't be a website without a tab name amirite? -->
+        <title>Cashier Breaker</title>
+
+        <!-- Thou shalt know the site from the tab -->
+        <link href="tabicon.ico" rel="shortcut icon" type="image/x-icon"/>
+
+        <!-- Thou shalt not resize your viewport -->
+        <meta name="viewport" content="initial-scale=1, user-scalable=no"/>
+
+        <!-- Due to a rift in time, continuity will be preserved in Chrome for Android Lollipop or greater -->
+        <meta name="theme-color" content="rgba(213, 163, 111, 1.0)"/>
+
+        <!-- Something something Firefox blows up without this so... -->
+        <meta charset="UTF-8"/>
+
+        <!-- Once again, style for the simplistic site, of course -->
+        <style type="text/css">
+            .bill {
+                margin: 0.25em 0 0 0;
+                padding: 0;
+                width: 90%;
+            }
+
+            .billdata {
+                width: 6em;
+            }
+
+            body {
+                background-color: rgba(213, 163, 111, 1.0);
+                font-family: "Monospace", monospace;
+                font-size: 1.05em;
+            }
+
+            #constants {
+                margin: 0 0 1em 0;
+            }
+
+            @font-face {
+                font-family: "Monospace";
+                src: url(resources/mono.ttf);
+            }
+
+            .moneycounter {
+                font-family: "Monospace", monospace;
+                width: 2.5em;
+            }
+
+            .output {
+                list-style-type: none;
+                margin: 0;
+            }
+
+            ul.output {
+                text-align: left;
+            }
+
+            #tablewrapper {
+                display: block;
+                height: 100px;
+                margin: 0 auto;
+                overflow-y: scroll;
+                padding: 0;
+                width: 100%;
+            }
+
+            td {
+                /*border: 1px solid black;*/
+                display: table-cell;
+                padding: 0.75em 0 0 0;
+                text-align: center;
+                vertical-align: middle;
+            }
+
+            #thetablethatmatters {
+                border-collapse: collapse;
+                display: table;
+                vertical-align: middle;
+                width: 100%;
+            }
+
+            ::-webkit-input-placeholder {
+                text-align: center;
+            }
+
+            :-moz-placeholder { /* Firefox 18- */
+                text-align: center;  
+            }
+
+            ::-moz-placeholder {  /* Firefox 19+ */
+                text-align: center;  
+            }
+
+            :-ms-input-placeholder {  
+                text-align: center; 
+            }
+        </style>
+
+        <!-- Darkness my old friend, welcome home. -->
+        <script type="text/javascript" src="resources/jquery-2.2.4.min.js"></script>
+
+        <script type="text/javascript">
+            const STARTING_BILLS = {
+                    100: 0, 50: 0,
+                    20: 3,
+                    10: 4,
+                    5: 2,
+                    2: 0,
+                    '1do': 10,
+                    '1co': 0, '50c': 0,
+                    '25c': 40,
+                    '10c': 50,
+                    '5c': 40,
+                    '1c': 100
+                },
+
+                BILL_VALUES = {
+                    100: 100, 50: 50,
+                    20: 20,
+                    10: 10,
+                    5: 5,
+                    2: 2,
+                    '1do': 1,
+                    '1co': 1, '50c': 0.50,
+                    '25c': 0.25,
+                    '10c': 0.10,
+                    '5c': 0.05,
+                    '1c': 0.01
+                },
+
+                BILLS_BY_MAGNITUDE = ['100', '50', '20', '10', '5', '2', '1do', '1co', '50c', '25c', '10c', '5c', '1c'],
+
+                BILL_NAMES = {
+                    100: 'HUNDRED DOLLAR BILLS',
+                    50: 'FIFTY DOLLAR BILLS',
+                    20: 'TWENTY DOLLAR BILLS',
+                    10: 'TEN DOLLAR BILLS',
+                    5: 'FIVE DOLLAR BILLS',
+                    2: 'TWO DOLLAR BILLS',
+                    '1do': 'ONE DOLLAR BILLS',
+                    '1co': 'ONE DOLLAR COINS',
+                    '50c': '50 CENT COINS',
+                    '25c': '25 CENT COINS',
+                    '10c': '10 CENT COINS',
+                    '5c': '5 CENT COINS',
+                    '1c': '1 CENT COINS'
+                };
+
+            const USD = {
+                100: {value: 100, name: '100 DOLLAR BILL'},
+                50:  {value: 50, name: '50 DOLLAR BILL'},
+                20:  {value: 20, name: '20 DOLLAR BILL'},
+                10:  {value: 10, name: '10 DOLLAR BILL'},
+                5:   {value: 5, name: '5 DOLLAR BILL'},
+                2:   {value: 2, name: '2 DOLLAR BILL'},
+                '1do': {value: 1, name: '1 DOLLAR BILL'},
+                '1co': {value: 1, name: '1 DOLLAR COIN'},
+                '50c': {value: 0.50, name: '50 CENT COIN'},
+                '25c': {value: 0.25, name: '25 CENT COIN'},
+                '10c': {value: 0.10, name: '10 CENT COIN'},
+                '5c':  {value: 0.05, name: '5 CENT COIN'},
+                '1c':  {value: 0.01, name: '1 CENT COIN'}
+            };
+
+            // Make sure that the interface looks good regardless of screen orientation and resolution
+            $(document).ready (positionGUI);
+            $(window).resize (positionGUI);
+            function positionGUI () {
+                var constants = $('#constants'),
+                    tableWrapper = $('#tablewrapper'),
+                    INCLUDE_MARGIN = true,
+                    PERCENTAGE = 0.65;
+
+                // Make the table height fit with enough room for other stuff
+                var totalTopHeight = Math.floor (window.innerHeight * PERCENTAGE);
+                tableWrapper.outerHeight (totalTopHeight - constants.outerHeight (INCLUDE_MARGIN));
+            }
+
+            // Generates the bill counts object from the input values found on the website
+            function getValuesFromWebsite () {
+                var startingRegisterAmount = $('#startingamount'),
+                    dropAmount = $('#dropamount'),
+                    numDrops = $('#numdrops'),
+
+                    // Inputs of counts
+                    franklins  = $('#franklininp'),
+                    grants      = $('#grantinp'),
+                    jacksons    = $('#jacksoninp'),
+                    hamiltons   = $('#hamiltoninp'),
+                    lincolns    = $('#lincolninp'),
+                    jeffersons  = $('#jeffersoninp'),
+                    washingtons = $('#washingtoninp'),
+
+                    dollarCoins = $('#dollarcoinsinp'),
+                    kennedies   = $('#kennedyinp'),
+                    quarters    = $('#quarterinp'),
+                    dimes       = $('#dimeinp'),
+                    nickels     = $('#nickelinp'),
+                    pennies     = $('#pennyinp');
+
+                // Quietly but effectively sanitize inputs for faster processing of such things
+                function sanitize (input) {return +input.replace (/\D/g, '');}
+
+                var values = {
+                    startingRegisterAmount: sanitize (startingRegisterAmount.val ()),
+                    dropAmount: sanitize (dropAmount.val ()),
+                    numDrops: sanitize (numDrops.val ()),
+                    100: sanitize (franklins.val ()),
+                    50: sanitize (grants.val ()),
+                    20: sanitize (jacksons.val ()),
+                    10: sanitize (hamiltons.val ()),
+                    5: sanitize (lincolns.val ()),
+                    2: sanitize (jeffersons.val ()),
+                    '1do': sanitize (washingtons.val ()),
+                    '1co': sanitize (dollarCoins.val ()),
+                    '50c': sanitize (kennedies.val ()),
+                    '25c': sanitize (quarters.val ()),
+                    '10c': sanitize (dimes.val ()),
+                    '5c': sanitize (nickels.val ()),
+                    '1c': sanitize (pennies.val ())
+                };
+
+                return values;
+            }
+
+            // 
+            function CashRegister (billCounts) {
+                var counts = billCounts;
+
+                // Returns the count of the specified compartment
+                this.compartmentCountOf = function (bill) {
+                    return counts[bill] || 0;
+                };
+
+                // Returns a copy of the count object
+                this.registerCounts = function () {
+                    let internalCounts = {};
+
+                    for (let bill in counts)
+                        internalCounts[bill] = counts[bill];
+
+                    return internalCounts;
+                };
+
+                this.tenderChange = function (amountOwed, billsTendered) {
+                    // Check if bills tendered cover the amount owed
+                    let amountGiven = 0;
+                    for (let bill in billsTendered) {
+                        let billValue = BILL_VALUES[bill],
+                            numBillsGiven = billsTendered[bill];
+
+                        amountGiven += billValue * numBillsGiven || 0;
+                        counts[bill] += numBillsGiven;
+                    }
+
+                    // Give back the change if the amount that was given covers the cost
+                    if (amountGiven >= amountOwed) {
+                        let changeStillOwed = amountGiven - amountOwed,
+                            billsGivenBack = {
+                                100: 0, 50: 0,
+                                20: 0,
+                                10: 0,
+                                5: 0,
+                                2: 0,
+                                '1do': 0,
+                                '1co': 0, '50c': 0,
+                                '25c': 0,
+                                '10c': 0,
+                                '5c': 0,
+                                '1c': 0
+                            };
+
+                        for (let i = 0; i < BILLS_BY_MAGNITUDE.length; i++) {
+                            let bill = BILLS_BY_MAGNITUDE[i],
+                                billValue = BILL_VALUES[bill];
+
+                            // Good ol'e brute force
+                            while (changeStillOwed >= billValue) {
+                                // Continue providing change if there are enough bills
+                                if (counts[bill]) {
+                                    counts[bill]--;
+                                    billsGivenBack[bill]++;
+
+                                    changeStillOwed -= billValue;
+                                }
+
+                                // Calculate smaller bills by value and use those to give the change, if possible
+                                else {
+                                    let billOfGreatestValue = false,
+                                        greatestValue = 0;
+
+                                    for (let j = i + 1; j < BILLS_BY_MAGNITUDE.length; j++) {
+                                        let billBreaker = BILLS_BY_MAGNITUDE[j],
+                                            billBreakerValue = BILL_VALUES[billBreaker];
+
+                                        let registerValueOfBill = billBreakerValue * counts[billBreaker];
+                                        if (registerValueOfBill > greatestValue) {
+                                            billOfGreatestValue = billBreaker;
+                                            greatestValue = registerValueOfBill;
+                                        }
+                                    }
+
+                                    // Give bills from the compartment with the most value as change
+                                    if (billOfGreatestValue && greatestValue >= changeStillOwed) {
+                                        let billBreakerValue = BILL_VALUES[billOfGreatestValue];
+
+                                        while (changeStillOwed >= billBreakerValue && counts[billOfGreatestValue]) {
+                                            counts[billOfGreatestValue]--;
+                                            billsGivenBack[billOfGreatestValue]++;
+
+                                            changeStillOwed -= billBreakerValue;
+                                        }
+                                    }
+
+                                    // Prompt the user to break a bill using money outside the register otherwise
+                                    else {
+                                        // Break a bill from money outside the box
+                                        customBillBreak (bill, true);
+                                        i--;
+                                    }
+                                }
+                            }
+                        }
+
+                        return billsGivenBack;
+                    }
+
+                    // Return false otherwise
+                    return false;
+
+                    function customBillBreak (bill, validInput) {
+                        let billValue = BILL_VALUES[bill],
+                            usBills = '"50", "20", "10", "5", "2", "1do", "1co", "50c", "25c", "10c", "5c", "1c"';
+
+                        if (validInput) {
+                            let msg = 'Enter a bill ('+ usBills +') to break a "'+ bill +'" with money from outside the register: ',
+                                breakingBill = prompt (msg).toLowerCase (),
+                                bBillVal = BILL_VALUES[breakingBill],
+
+                                numBillsToSub = bBillVal? Math.round (billValue / bBillVal) : customBillBreak (billValue, false);
+
+                            counts[bill]--;
+                            counts[breakingBill] += numBillsToSub;
+                        }
+
+                        else {
+                            alert ('"' + input +
+                                '" is not recognized as a valid U.S. bill to break. Please type in one of: ' + usBills);
+
+                            return customBillBreak (billValue, true);
+                        }
+                    }
+                };
+            }
+
+            // Interface that handles interactions of cash
+            function Wallet (bills, currency) {
+                let cc = new CurrencyCounter (currency),
+                    curr = currency;
+
+                // Add the bills to the wallet if bills are provided
+                if (bills instanceof CurrencyCounter) cc = bills;
+                else if (bills) cc.addBulk (bills);
+
+                // Pay with the smallest bills that cover the cost in mind
+                this.pay = amount => {
+                    // Empty the wallet if the amount to be payed is exactly the amount in the wallet
+                    if (cc.value () === amount) {
+                        let walletContents = cc.counts ();
+                        cc.removeBulk (walletContents);
+
+                        let payment = new CurrencyCounter (curr);
+                        payment.addBulk (walletContents);
+
+                        return payment;
+                    }
+
+                    // Pay if the amount found in the wallet is > amount to be payed
+                    else if (cc.value () > amount) {
+                        // Make the payment a currency counter of bills to be extracted from the wallet
+                        let payment = new CurrencyCounter (curr);
+
+
+                    }
+
+                    // There is not enough money to pay otherwise
+                    return false;
+                };
+
+                this.store = () => {
+
+                };
+            }
+
+            // Used to keep count a specific currency
+            function CurrencyCounter (currency) {
+                let counts = {},
+                    val    = 0,
+                    curr   = currency,
+                    bM     = currency.lToSMags ();
+
+                // Copy each bill to the counts object (none during construction)
+                bM.forEach (e => {counts[e] = 0;});
+
+                // Returns the count of a specified bill
+                this.countOf = bill => typeof counts[bill] == 'number'? counts[bill] : false;
+
+                // Modifies the count value of a bill if it exists
+                this.changeCountOf = (bill, amt) => {
+                    if (typeof counts[bill] == 'number') {
+                        let delta = amt >> 0;
+
+                        counts[bill] += delta;
+                        val += delta < 0? -curr.valueOf (bill) : curr.valueOf (bill);
+                    }
+
+                    return this;
+                };
+
+                // Adds bills by bulk to val counter
+                this.addBulk = bulkCounts => {
+                    for (let bill in bulkCounts) {
+                        // Only add the counts and value of each bill if found in the currency
+                        if (typeof counts[bill] == 'number') {
+                            let trueValue = bulkCounts[bill] >> 0;
+
+                            counts[bill] += trueValue;
+                            val += trueValue * curr.valueOf (bill);
+                        }
+                    }
+
+                    return this;
+                };
+
+                // Removes bills by bulk from the val counter. Does not protect from debt
+                this.removeBulk = bulkCounts => {
+                    for (let bill in bulkCounts) {
+                        // Only remove the counts and values of each bill if found in the currency
+                        if (typeof counts[bill] == 'number') {
+                            let trueValue = bulkCounts[bill] >> 0;
+
+                            counts[bill] -= trueValue;
+                            val -= trueValue * curr.valueOf (bill);
+                        }
+                    }
+
+                    return this;
+                };
+
+                // Returns the value of this currency counter
+                this.value = () => val;
+
+                // Returns a copy of all internal counts
+                this.counts = () => {let cCopy = {}; for (let bill in counts) cCopy[bill] = counts[bill]; return cCopy;};
+
+                // Returns the total value of one type of bill
+                this.valueOf = bill => typeof counts[bill] == 'number'? counts[bill] * curr.valueOf (bill) : 0;
+            }
+
+
+            // Creates the basis for a currency
+            function Currency (bills, pluralNameGenerator) {
+                let pNG = pluralNameGenerator;
+
+                let bV = {}, // bill values
+                    bN = {}, // bill names
+                    bM = []; // bill magnitudes
+
+                // Extract value and name information from the bills found in the currency
+                for (let bill in bills) {
+                    bV[bill] = bills[bill].value? bills[bill].value : (() => {throw bill + '.value is missing!';})();
+                    bN[bill] = bills[bill].name? bills[bill].name : (() => {throw bill + '.name is missing!';})();
+                    bM.push (bill);
+                }
+
+                // Sort the bill magnitudes array from largest to smallest
+                bM.sort ((a, b) => bV[a] > bV[b]? 1 : bV[a] < bV[b]? -1 : 0);
+
+                // Returns a bill's name, plural if the plural argument is given
+                this.nameOf = (bill, isPlural) => bN[bill]? isPlural? pNG (bN[bill]) : bN[bill] : false;
+
+                // Returns a bill's value
+                this.valueOf = bill => bV[bill]? bV[bill] : 0;
+
+                // Returns a copy of all bills given during construction by largest to smallest magnitudes
+                this.lToSMags = () => {let a = []; bM.forEach (e => a.push (e)); return a};
+
+                // Returns a copy of all bills given during construction by smallest to largest magnitudes
+                this.sToLMags = () => {let a = []; bM.forEach (e => a.splice (0, 0, e)); return a};
+            }
+        </script>
+    </head>
+
+    <!-- Gotta have content, duuuuhhh! -->
+    <body>
+    <!-- Due to Newton's laws of physics, inits will be variable and not constant -->
+        <div id="constants">
+            <p class="output">Initial Register Amnt: $<input type="text" class="moneycounter" placeholder="$$$" value="198" name="startingamount" id="startingamount"/></p>
+
+            <p class="output">Money Amount per Drop: $<input type="text" class="moneycounter" placeholder="$$$" value="400" name="dropamount" id="dropamount"/></p>
+
+            <p class="output">Number of Drops: <input type="text" class="moneycounter" placeholder="#" name="numdrops" id="numdrops"/></p>
+        </div>
+
+        <div id="tablewrapper">
+            <table id="thetablethatmatters">
+                <tr>
+                    <td class="billdata">
+                        <input type="text" class="moneycounter" name="franklin" id="franklininp" placeholder="$100"/><br>
+                        <img src="resources/100.png" class="bill"/>
+                    </td>
+                    <td>
+                        <ul class="output">
+                            <li>Bills To Reg : </li>
+                            <li>Bills To Drop: </li>
+                            <li>Bills To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="billdata">
+                        <input type="text" class="moneycounter" name="grant" id="grantinp" placeholder="$50"/><br>
+                        <img src="resources/50.png" class="bill"/>
+                    </td>
+                    <td>
+                        <ul class="output">
+                            <li>Bills To Reg : </li>
+                            <li>Bills To Drop: </li>
+                            <li>Bills To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="billdata">
+                        <input type="text" class="moneycounter" name="jackson" id="jacksoninp" placeholder="$20"/><br>
+                        <img src="resources/20.png" class="bill"/>
+                    </td>
+                    <td>
+                        <ul class="output">
+                            <li>Bills To Reg : </li>
+                            <li>Bills To Drop: </li>
+                            <li>Bills To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="billdata">
+                        <input type="text" class="moneycounter" name="hamilton" id="hamiltoninp" placeholder="$10"/>
+                        <img src="resources/10.png" class="bill"/>
+                    </td>
+                    <td>
+                        <ul class="output">
+                            <li>Bills To Reg : </li>
+                            <li>Bills To Drop: </li>
+                            <li>Bills To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="billdata">
+                        <input type="text" class="moneycounter" name="lincoln" id="lincolninp" placeholder="$5"/>
+                        <img src="resources/5.png" class="bill"/>
+                    </td>
+                    <td>
+                        <ul class="output">
+                            <li>Bills To Reg : </li>
+                            <li>Bills To Drop: </li>
+                            <li>Bills To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="billdata">
+                        <input type="text" class="moneycounter" name="jefferson" id="jeffersoninp" placeholder="$2"/>
+                        <img src="resources/2.png" class="bill"/>
+                    </td>
+                    <td>
+                        <ul class="output">
+                            <li>Bills To Reg : </li>
+                            <li>Bills To Drop: </li>
+                            <li>Bills To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="billdata">
+                        <input type="text" class="moneycounter" name="washington" id="washingtoninp" placeholder="$1"/>
+                        <img src="resources/1.png" class="bill"/>
+                    </td>
+                    <td>
+                        <ul class="output">
+                            <li>Bills To Reg : </li>
+                            <li>Bills To Drop: </li>
+                            <li>Bills To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td><input type="text" class="moneycounter" name="dollarcoins" id="dollarcoinsinp" placeholder="$1"/></td>
+                    <td>
+                        <ul class="output">
+                            <li>Coins To Reg : </li>
+                            <li>Coins To Drop: </li>
+                            <li>Coins To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td><input type="text" class="moneycounter" name="kennedy" id="kennedyinp" placeholder="50&#162;"/></td>
+                    <td>
+                        <ul class="output">
+                            <li>Coins To Reg : </li>
+                            <li>Coins To Drop: </li>
+                            <li>Coins To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td><input type="text" class="moneycounter" name="quarter" id="quarterinp" placeholder="25&#162;"/></td>
+                    <td>
+                        <ul class="output">
+                            <li>Coins To Reg : </li>
+                            <li>Coins To Drop: </li>
+                            <li>Coins To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td><input type="text" class="moneycounter" name="dime" id="dimeinp" placeholder="10&#162;"/></td>
+                    <td>
+                        <ul class="output">
+                            <li>Coins To Reg : </li>
+                            <li>Coins To Drop: </li>
+                            <li>Coins To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td><input type="text" class="moneycounter" name="nickel" id="nickelinp" placeholder="5&#162;"/></td>
+                    <td>
+                        <ul class="output">
+                            <li>Coins To Reg : </li>
+                            <li>Coins To Drop: </li>
+                            <li>Coins To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td><input type="text" class="moneycounter" name="penny" id="pennyinp" placeholder="1&#162;"/></td>
+                    <td>
+                        <ul class="output">
+                            <li>Coins To Reg : </li>
+                            <li>Coins To Drop: </li>
+                            <li>Coins To Box : </li>
+                        </ul>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </body>
+</html>
