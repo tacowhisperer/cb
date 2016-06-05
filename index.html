@@ -225,178 +225,134 @@
                 return values;
             }
 
-            // 
             function CashRegister (billCounts) {
-                var counts = billCounts;
+                if (!billCounts instanceof CurrencyCounter) 
+                    throw 'Invalid argument fed! Require CurrencyCounter object.';
 
-                // Returns the count of the specified compartment
-                this.compartmentCountOf = function (bill) {
-                    return counts[bill] || 0;
-                };
+                let cc = billCounts,
+                    curr = cc.currency (),
+                    bM = curr.lToSMags ();
 
-                // Returns a copy of the count object
-                this.registerCounts = function () {
-                    let internalCounts = {};
+                // Returns the number of bills found in the cash register for a specific bill
+                this.compartmentCountOf = bill => cc.countOf (bill);
 
-                    for (let bill in counts)
-                        internalCounts[bill] = counts[bill];
+                // Returns a copy of the currency counter of all the bills found in cash register
+                this.registerCounts = () => new CurrencyCounter (curr, cc.counts ());
 
-                    return internalCounts;
-                };
+                // Returns change (currency counter object) for an amount owed and an amount given (currency counter object)
+                this.tenderChange = (amountOwed, billsTendered) => {
+                    if (billsTendered.value () === amountOwed) {
+                        let change = new CurrencyCounter (curr),
+                            billsTenderedCounts = billsTendered.counts ();
 
-                this.tenderChange = function (amountOwed, billsTendered) {
-                    // Check if bills tendered cover the amount owed
-                    let amountGiven = 0;
-                    for (let bill in billsTendered) {
-                        let billValue = BILL_VALUES[bill],
-                            numBillsGiven = billsTendered[bill];
+                        cc.addBulk (billsTenderedCounts);
+                        billsTendered.removeBulk (billsTenderedCounts);
 
-                        amountGiven += billValue * numBillsGiven || 0;
-                        counts[bill] += numBillsGiven;
+                        return change;
                     }
 
-                    // Give back the change if the amount that was given covers the cost
-                    if (amountGiven >= amountOwed) {
-                        let changeStillOwed = amountGiven - amountOwed,
-                            billsGivenBack = {
-                                100: 0, 50: 0,
-                                20: 0,
-                                10: 0,
-                                5: 0,
-                                2: 0,
-                                '1do': 0,
-                                '1co': 0, '50c': 0,
-                                '25c': 0,
-                                '10c': 0,
-                                '5c': 0,
-                                '1c': 0
-                            };
+                    else if (billsTendered.value () > amountOwed) {
+                        let billsTenderedCounts = billsTendered.counts (),
+                            internalRegisterCounts = cc.counts ();
 
-                        for (let i = 0; i < BILLS_BY_MAGNITUDE.length; i++) {
-                            let bill = BILLS_BY_MAGNITUDE[i],
-                                billValue = BILL_VALUES[bill];
+                        // Go through each bill and attempt to find a working fit
+                        let change = new CurrencyCounter (curr),
+                            amountStillOwed = amountOwed;
 
-                            // Good ol'e brute force
-                            while (changeStillOwed >= billValue) {
-                                // Continue providing change if there are enough bills
-                                if (counts[bill]) {
-                                    counts[bill]--;
-                                    billsGivenBack[bill]++;
+                        for (let i = 0; i < bM.length; i++) {
+                            let bill = bM[i],
+                                neededBills = Math.floor (amountOwed / curr.valueOf (bill)); // shortcut of the while loop
 
-                                    changeStillOwed -= billValue;
+                            // Take the necessary bills from the register to the change if available
+                            if (neededBills <= cc.countOf (bill)) {
+                                cc.changeCountOf (bill, -neededBills);
+                                change.changeCountOf (bill, neededBills);
+                            }
+
+                            // Break a bill with cash from other smaller bills
+                            else {
+                                let additionalBillsNeeded = neededBills - cc.countOf (bill), // bills needed on top of the bills to be used for change
+                                    additionalValueNeeded = additionalBillsNeeded * curr.valueOf (bill);
+
+                                // Scan large bills to use to downscale
+                                let largerBillBroken = false;
+                                for (let j = 0; j < i; j++) {
+                                    let largerBill = bM[j];
+
+                                    // Only make the break if the value of the bills found is larger than the value needed
+                                    if (cc.valueOf (largerBill) >= additionalValueNeeded) {
+                                        let brokenBillAmount = Math.floor (additionalValueNeeded / curr.valueOf (largerBill));
+
+                                        cc.changeCountOf (largerBill, -brokenBillAmount);
+                                        cc.changeCountOf (bill, additionalBillsNeeded);
+
+                                        largerBillBroken = true;
+                                        break;
+                                    }
                                 }
 
-                                // Calculate smaller bills by value and use those to give the change, if possible
+                                // Reduce the index to try the same bill again after acquiring more bills
+                                if (largerBillBroken) i--;
+
+                                // Scan smaller bills to use to upscale
                                 else {
-                                    let billOfGreatestValue = false,
-                                        greatestValue = 0;
+                                    let smallerBillUpscaled = false;
+                                    for (let j = i + 1; j < bM.length; i++) {
+                                        let smallerBill = bM[j];
 
-                                    for (let j = i + 1; j < BILLS_BY_MAGNITUDE.length; j++) {
-                                        let billBreaker = BILLS_BY_MAGNITUDE[j],
-                                            billBreakerValue = BILL_VALUES[billBreaker];
+                                        // Only make the upscale if the value of the smaller bills is larger than the value needed
+                                        if (cc.valueOf (smallerBill) >= additionalValueNeeded) {
+                                            let upscaledBillAmount = Math.floor (additionalValueNeeded / curr.valueOf (smallerBill));
 
-                                        let registerValueOfBill = billBreakerValue * counts[billBreaker];
-                                        if (registerValueOfBill > greatestValue) {
-                                            billOfGreatestValue = billBreaker;
-                                            greatestValue = registerValueOfBill;
+                                            cc.changeCountOf (smallerBill, -upscaledBillAmount);
+                                            cc.changeCountOf (bill, additionalBillsNeeded);
+
+                                            smallerBillUpscaled = true;
+                                            break;
                                         }
                                     }
 
-                                    // Give bills from the compartment with the most value as change
-                                    if (billOfGreatestValue && greatestValue >= changeStillOwed) {
-                                        let billBreakerValue = BILL_VALUES[billOfGreatestValue];
+                                    // Reduce the index to try the same bill again after acquiring more bills
+                                    if (!smallerBillUpscaled) promptForCustomBillBreak (bill, true);
 
-                                        while (changeStillOwed >= billBreakerValue && counts[billOfGreatestValue]) {
-                                            counts[billOfGreatestValue]--;
-                                            billsGivenBack[billOfGreatestValue]++;
-
-                                            changeStillOwed -= billBreakerValue;
-                                        }
-                                    }
-
-                                    // Prompt the user to break a bill using money outside the register otherwise
-                                    else {
-                                        // Break a bill from money outside the box
-                                        customBillBreak (bill, true);
-                                        i--;
-                                    }
+                                    // Reduce the index to try the same bill again after acquiring more bills
+                                    i--;
                                 }
                             }
                         }
-
-                        return billsGivenBack;
                     }
 
-                    // Return false otherwise
-                    return false;
+                    function promptForCustomBillBreak (bill, validInput) {
+                        let billValue = cc.valueOf (bill),
+                            validBills = '';
 
-                    function customBillBreak (bill, validInput) {
-                        let billValue = BILL_VALUES[bill],
-                            usBills = '"50", "20", "10", "5", "2", "1do", "1co", "50c", "25c", "10c", "5c", "1c"';
+                        for (let i = 0; i < bM.length; i++)
+                            validBills += '"' + bM[i] + '"' + (i > 0? ', ' : '');
 
                         if (validInput) {
-                            let msg = 'Enter a bill ('+ usBills +') to break a "'+ bill +'" with money from outside the register: ',
+                            let msg = 'Enter a bill (' + validBills + ') to break a "' + bill + '" with money from outside the register: ',
                                 breakingBill = prompt (msg).toLowerCase (),
-                                bBillVal = BILL_VALUES[breakingBill],
+                                bBillVal = cc.valueOf (breakingBill),
 
-                                numBillsToSub = bBillVal? Math.round (billValue / bBillVal) : customBillBreak (billValue, false);
-
-                            counts[bill]--;
-                            counts[breakingBill] += numBillsToSub;
+                                numBillsToSub = bBillVal? Math.round (billValue / bBillVal) : promptForCustomBillBreak (bill, false);
+                            
+                            cc.changeCountOf (bill, -1);
+                            cc.changeCountOf (breakingBill, numBillsToSub);
                         }
 
                         else {
-                            alert ('"' + input +
-                                '" is not recognized as a valid U.S. bill to break. Please type in one of: ' + usBills);
-
-                            return customBillBreak (billValue, true);
+                            alert ('"' + bill + '" is not recognized as a valid bill in the currency. Please type one of: ' + validBills);
+                            return promptForCustomBillBreak (bill, true);
                         }
                     }
-                };
-            }
 
-            // Interface that handles interactions of cash
-            function Wallet (bills, currency) {
-                let cc = new CurrencyCounter (currency),
-                    curr = currency;
-
-                // Add the bills to the wallet if bills are provided
-                if (bills instanceof CurrencyCounter) cc = bills;
-                else if (bills) cc.addBulk (bills);
-
-                // Pay with the smallest bills that cover the cost in mind
-                this.pay = amount => {
-                    // Empty the wallet if the amount to be payed is exactly the amount in the wallet
-                    if (cc.value () === amount) {
-                        let walletContents = cc.counts ();
-                        cc.removeBulk (walletContents);
-
-                        let payment = new CurrencyCounter (curr);
-                        payment.addBulk (walletContents);
-
-                        return payment;
-                    }
-
-                    // Pay if the amount found in the wallet is > amount to be payed
-                    else if (cc.value () > amount) {
-                        // Make the payment a currency counter of bills to be extracted from the wallet
-                        let payment = new CurrencyCounter (curr);
-
-
-                    }
-
-                    // There is not enough money to pay otherwise
                     return false;
-                };
-
-                this.store = () => {
-
                 };
             }
 
             // Used to keep count a specific currency
-            function CurrencyCounter (currency) {
-                let counts = {},
+            function CurrencyCounter (currency, billObj) {
+                let counts = billObj? billObj : {},
                     val    = 0,
                     curr   = currency,
                     bM     = currency.lToSMags ();
@@ -457,6 +413,9 @@
 
                 // Returns the total value of one type of bill
                 this.valueOf = bill => typeof counts[bill] == 'number'? counts[bill] * curr.valueOf (bill) : 0;
+
+                // Returns the currency object of the counter
+                this.currency = () => curr;
             }
 
 
