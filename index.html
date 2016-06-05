@@ -226,7 +226,7 @@
             }
 
             function CashRegister (billCounts) {
-                if (!billCounts instanceof CurrencyCounter) 
+                if (!(billCounts instanceof CurrencyCounter))
                     throw 'Invalid argument fed! Require CurrencyCounter object.';
 
                 let cc = billCounts,
@@ -352,24 +352,32 @@
 
             // Used to keep count a specific currency
             function CurrencyCounter (currency, billObj) {
-                let counts = billObj? billObj : {},
-                    val    = 0,
-                    curr   = currency,
-                    bM     = currency.lToSMags ();
+                let bCounts = {},
+                    val     = 0,
+                    curr    = currency,
+                    bM      = currency.lToSMags ();
 
                 // Copy each bill to the counts object (none during construction)
-                bM.forEach (e => {counts[e] = 0;});
+                bM.forEach (e => {bCounts[e] = 0;});
+
+                // Update each count with the actual bill counts if provided
+                if (billObj) {
+                    for (let bill in billObj) {
+                        if (bM.indexOf (bill) != -1 && typeof billObj[bill] == 'number') 
+                            bCounts[bill] = billObj[bill];
+                    }
+                }
 
                 // Returns the count of a specified bill
-                this.countOf = bill => typeof counts[bill] == 'number'? counts[bill] : false;
+                this.countOf = bill => typeof bCounts[bill] == 'number'? bCounts[bill] : false;
 
                 // Modifies the count value of a bill if it exists
                 this.changeCountOf = (bill, amt) => {
-                    if (typeof counts[bill] == 'number') {
+                    if (typeof bCounts[bill] == 'number') {
                         let delta = amt >> 0;
 
-                        counts[bill] += delta;
-                        val += delta < 0? -curr.valueOf (bill) : curr.valueOf (bill);
+                        bCounts[bill] += delta;
+                        val += delta * curr.valueOf (bill);
                     }
 
                     return this;
@@ -379,10 +387,10 @@
                 this.addBulk = bulkCounts => {
                     for (let bill in bulkCounts) {
                         // Only add the counts and value of each bill if found in the currency
-                        if (typeof counts[bill] == 'number') {
+                        if (typeof bCounts[bill] == 'number') {
                             let trueValue = bulkCounts[bill] >> 0;
 
-                            counts[bill] += trueValue;
+                            bCounts[bill] += trueValue;
                             val += trueValue * curr.valueOf (bill);
                         }
                     }
@@ -394,10 +402,10 @@
                 this.removeBulk = bulkCounts => {
                     for (let bill in bulkCounts) {
                         // Only remove the counts and values of each bill if found in the currency
-                        if (typeof counts[bill] == 'number') {
+                        if (typeof bCounts[bill] == 'number') {
                             let trueValue = bulkCounts[bill] >> 0;
 
-                            counts[bill] -= trueValue;
+                            bCounts[bill] -= trueValue;
                             val -= trueValue * curr.valueOf (bill);
                         }
                     }
@@ -409,10 +417,10 @@
                 this.value = () => val;
 
                 // Returns a copy of all internal counts
-                this.counts = () => {let cCopy = {}; for (let bill in counts) cCopy[bill] = counts[bill]; return cCopy;};
+                this.counts = () => {let cCopy = {}; for (let bill in bCounts) cCopy[bill] = bCounts[bill]; return cCopy;};
 
                 // Returns the total value of one type of bill
-                this.valueOf = bill => typeof counts[bill] == 'number'? counts[bill] * curr.valueOf (bill) : 0;
+                this.valueOf = bill => typeof bCounts[bill] == 'number'? bCounts[bill] * curr.valueOf (bill) : 0;
 
                 // Returns the currency object of the counter
                 this.currency = () => curr;
@@ -444,10 +452,10 @@
                 this.valueOf = bill => bV[bill]? bV[bill] : 0;
 
                 // Returns a copy of all bills given during construction by largest to smallest magnitudes
-                this.lToSMags = () => {let a = []; bM.forEach (e => a.push (e)); return a};
+                this.sToLMags = () => {let a = []; bM.forEach (e => a.push (e)); return a};
 
                 // Returns a copy of all bills given during construction by smallest to largest magnitudes
-                this.sToLMags = () => {let a = []; bM.forEach (e => a.splice (0, 0, e)); return a};
+                this.lToSMags = () => {let a = []; bM.forEach (e => a.splice (0, 0, e)); return a};
             }
         </script>
     </head>
